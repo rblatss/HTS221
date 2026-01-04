@@ -72,15 +72,15 @@ I2C_HandleTypeDef hi2c2;
 UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
-// TODO this is alright...
+
+// Interrupt / main communication
 bool check_for_temp_change = false;
+uint8_t register_selection;
 
 // FIFO variables
-static uint8_t fifo_buffer[FIFO_SIZE];
-static uint8_t fifo_read;
-static uint8_t fifo_write;
-
-static uint8_t register_selection;
+uint8_t fifo_buffer[FIFO_SIZE];
+uint8_t fifo_read;
+uint8_t fifo_write;
 
 /* USER CODE END PV */
 
@@ -102,6 +102,10 @@ void fifo_init()
   fifo_write = 0;
 }
 
+float celsius_to_farenheit(float degrees_celsius)
+{
+  return (9.0 / 5.0) * degrees_celsius + 32.0;
+}
 /* USER CODE END 0 */
 
 /**
@@ -136,39 +140,46 @@ int main(void)
   MX_I2C2_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
-  // HAL_StatusTypeDef register_rc = HAL_I2C_RegisterCallback(&hi2c2, HAL_I2C_MASTER_RX_COMPLETE_CB_ID, MasterRxCpltCallback);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+
+  // Give HTS221 time to initialize
+  HAL_Delay(1000);
 
   // Check that HTS221 is ready for communication 
   HAL_StatusTypeDef is_device_ready = HAL_I2C_IsDeviceReady(&hi2c2, HTS221_READ_ADDR, NUMBER_TRIALS, HAL_MAX_DELAY);
   if (is_device_ready != HAL_OK)
   {
     printf("Device is not ready. Exiting.\r\n");
-    return 1;
+    Error_Handler();
   }
 
   // Check device identity
+  // Query WHO_AM_I register via blocking HAL transmit / receive calls
+  uint8_t identity;
   register_selection = WHO_AM_I;
   HAL_I2C_Master_Transmit(&hi2c2, HTS221_WRITE_ADDR, &register_selection, NUMBER_TRIALS, HAL_MAX_DELAY);
-  uint8_t identity;
   HAL_I2C_Master_Receive(&hi2c2, HTS221_READ_ADDR, &identity, NUMBER_TRIALS, HAL_MAX_DELAY);
   printf("HTS221 Identity: %x\r\n", identity);
   if (identity != 0xBC)
   {
     printf("HTS221 identity is invalid. Exiting.\r\n");
-    return 1;
+    Error_Handler();
   }
 
-  // Start reading the temperature
+  // Start reading the temperature via non-blocking interrupts
   register_selection = TEMP_OUT_L;
   HAL_I2C_Master_Transmit_IT(&hi2c2, HTS221_WRITE_ADDR, &register_selection, DATA_SIZE);
 
   // Temperature variables
   int16_t prev_temp = 0;
   int16_t curr_temp = 0;
+  float degrees_celsius;
+  float degrees_farenheit;
+
   while (1)
   {
     /* USER CODE END WHILE */
@@ -180,7 +191,7 @@ int main(void)
       HAL_NVIC_DisableIRQ(I2C2_EV_IRQn);
 
       // Read temperature from buffer
-      // FIFO will be filled with alternating low and high temperature bytes
+      // FIFO will be filled with alternating TEMP_OUT_L and TEMP_OUT_H bytes
       curr_temp = fifo_buffer[fifo_read];
       fifo_read = (fifo_read + DATA_SIZE) % FIFO_SIZE;
       curr_temp |= fifo_buffer[fifo_read] << 8;
@@ -189,9 +200,9 @@ int main(void)
       // Print temperature if the reading changed
       if(curr_temp != prev_temp)
       {
-        // TODO convert to farenheit
-        // TODO printing the degree symbol \xf8
-        printf("Temp: %hd \xf8 C\r\n", (int16_t) (curr_temp / 8.0));
+        degrees_celsius = (curr_temp / 8.0);
+        degrees_farenheit = celsius_to_farenheit(degrees_celsius);
+        printf("Temp: %.2f \xf8\x43, %.2f \xf8\x46\r\n", degrees_celsius, degrees_farenheit);
         prev_temp = curr_temp;
       }
 
@@ -364,7 +375,7 @@ void HAL_I2C_MasterRxCpltCallback(I2C_HandleTypeDef *hi2c)
     }
     else if(register_selection == TEMP_OUT_H)
     {
-      check_for_temp_change = true;
+      check_for_temp_change = true;  // check for temperature change after reading TEMP_OUT_H
       register_selection = TEMP_OUT_L;
       HAL_I2C_Master_Transmit_IT(&hi2c2, HTS221_WRITE_ADDR, &register_selection, DATA_SIZE);
     }
