@@ -18,12 +18,13 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "i2c.h"
+#include "usart.h"
+#include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include <stdio.h>
-#include <string.h>
-#include <stdbool.h>
+#include "hts221.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -33,32 +34,13 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define HAL_ARBITRARY_DELAY 0xFFFF
 
 // FIFO definitions
 #define FIFO_SIZE 32
 
-// Non-blocking I2C definitions
-#define DATA_SIZE 1
-
 // Blocking I2C definitions
-#define NUMBER_TRIALS 1
-
-// HTS221 slave addresses
-#define HTS221_READ_ADDR 0xBE
-#define HTS221_WRITE_ADDR 0xBF
-
-// HTS221 register addresses
-#define WHO_AM_I 0x0F
-#define AV_CONF 0x10
-#define CTRL_REG1 0x20
-#define CTRL_REG2 0x21
-#define CTRL_REG3 0x22
-#define STATUS_REG R 0x27
-#define HUMIDITY_OUT_L 0x28
-#define HUMIDITY_OUT_H 0x29
-#define TEMP_OUT_L 0x2A
-#define TEMP_OUT_H 0x2B
-
+#define NUMBER_TRIALS 5
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -67,28 +49,22 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-I2C_HandleTypeDef hi2c2;
-
-UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
 
 // Interrupt / main communication
-bool check_for_temp_change = false;
-uint8_t register_selection;
+static bool check_for_temp_change = false;
+static uint8_t register_selection;
 
 // FIFO variables
-uint8_t fifo_buffer[FIFO_SIZE];
-uint8_t fifo_read;
-uint8_t fifo_write;
+static uint8_t fifo_buffer[FIFO_SIZE];
+static uint8_t fifo_read;
+static uint8_t fifo_write;
 
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
-static void MX_GPIO_Init(void);
-static void MX_I2C2_Init(void);
-static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -106,6 +82,7 @@ float celsius_to_farenheit(float degrees_celsius)
 {
   return (9.0 / 5.0) * degrees_celsius + 32.0;
 }
+
 /* USER CODE END 0 */
 
 /**
@@ -117,6 +94,7 @@ int main(void)
 
   /* USER CODE BEGIN 1 */
   fifo_init();
+
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -146,23 +124,19 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 
-  // Give HTS221 time to initialize
+  // Give the HTS221 a second...
   HAL_Delay(1000);
 
-  // Check that HTS221 is ready for communication 
-  HAL_StatusTypeDef is_device_ready = HAL_I2C_IsDeviceReady(&hi2c2, HTS221_READ_ADDR, NUMBER_TRIALS, HAL_MAX_DELAY);
-  if (is_device_ready != HAL_OK)
+  // Wait until HTS221 is ready for communication
+  if (HAL_I2C_IsDeviceReady(&hi2c2, HTS221_READ_ADDR, NUMBER_TRIALS, HAL_ARBITRARY_DELAY) != HAL_OK)
   {
-    printf("Device is not ready. Exiting.\r\n");
+    printf("HTS221 failed to setup.\r\n");
     Error_Handler();
   }
+  printf("HTS221 is ready.\r\n");
 
   // Check device identity
-  // Query WHO_AM_I register via blocking HAL transmit / receive calls
-  uint8_t identity;
-  register_selection = WHO_AM_I;
-  HAL_I2C_Master_Transmit(&hi2c2, HTS221_WRITE_ADDR, &register_selection, NUMBER_TRIALS, HAL_MAX_DELAY);
-  HAL_I2C_Master_Receive(&hi2c2, HTS221_READ_ADDR, &identity, NUMBER_TRIALS, HAL_MAX_DELAY);
+  uint8_t identity = hts221_read_register_blocking(&hi2c2, WHO_AM_I);
   printf("HTS221 Identity: %x\r\n", identity);
   if (identity != 0xBC)
   {
@@ -170,15 +144,34 @@ int main(void)
     Error_Handler();
   }
 
+  // Write to registers
+  // TODO do we need this?
+  hts221_write_register_blocking(&hi2c2, CTRL_REG1, 0x81);  // power on HTS221 and set output rate to 1 Hz
+  hts221_write_register_blocking(&hi2c2, CTRL_REG2, 0x80);  // refresh content of internal registers
+
+  // Read registers and print
+  // TODO do we need this?
+  uint8_t ctrl_reg1 = hts221_read_register_blocking(&hi2c2, CTRL_REG1);
+  uint8_t ctrl_reg3 = hts221_read_register_blocking(&hi2c2, CTRL_REG3);
+  uint8_t status_reg = hts221_read_register_blocking(&hi2c2, STATUS_REG);
+  uint8_t av_conf_reg = hts221_read_register_blocking(&hi2c2, AV_CONF);
+  printf("Control register 1 = %x\r\n", ctrl_reg1);
+  printf("Control register 3 = %x\r\n", ctrl_reg3);
+  printf("Status register = %x\r\n", status_reg);
+  printf("AV configuration register = %x\r\n", av_conf_reg);
+
+  // Initialize temperature calibration variables
+  initialize_temperature_calibration(&hi2c2);
+
+  // Temperature variables
+  static int16_t prev_adc = 0;
+  static int16_t curr_adc = 0;
+  static float degrees_celsius;
+  static float degrees_farenheit;
+
   // Start reading the temperature via non-blocking interrupts
   register_selection = TEMP_OUT_L;
   HAL_I2C_Master_Transmit_IT(&hi2c2, HTS221_WRITE_ADDR, &register_selection, DATA_SIZE);
-
-  // Temperature variables
-  int16_t prev_temp = 0;
-  int16_t curr_temp = 0;
-  float degrees_celsius;
-  float degrees_farenheit;
 
   while (1)
   {
@@ -192,18 +185,21 @@ int main(void)
 
       // Read temperature from buffer
       // FIFO will be filled with alternating TEMP_OUT_L and TEMP_OUT_H bytes
-      curr_temp = fifo_buffer[fifo_read];
+      curr_adc = fifo_buffer[fifo_read];
       fifo_read = (fifo_read + DATA_SIZE) % FIFO_SIZE;
-      curr_temp |= fifo_buffer[fifo_read] << 8;
+      curr_adc |= (fifo_buffer[fifo_read] << CHAR_BIT);
       fifo_read = (fifo_read + DATA_SIZE) % FIFO_SIZE;
 
       // Print temperature if the reading changed
-      if(curr_temp != prev_temp)
+      if(curr_adc != prev_adc)
       {
-        degrees_celsius = (curr_temp / 8.0);
+        // Convert ADC to celsius and farenheit values
+        degrees_celsius = convert_temperature(curr_adc);
         degrees_farenheit = celsius_to_farenheit(degrees_celsius);
+
+        // Use hex escaped symbols to print degree character
         printf("Temp: %.2f \xf8\x43, %.2f \xf8\x46\r\n", degrees_celsius, degrees_farenheit);
-        prev_temp = curr_temp;
+        prev_adc = curr_adc;
       }
 
       // Wait for temperature data
@@ -260,114 +256,15 @@ void SystemClock_Config(void)
   }
 }
 
-/**
-  * @brief I2C2 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_I2C2_Init(void)
-{
-
-  /* USER CODE BEGIN I2C2_Init 0 */
-
-  /* USER CODE END I2C2_Init 0 */
-
-  /* USER CODE BEGIN I2C2_Init 1 */
-
-  /* USER CODE END I2C2_Init 1 */
-  hi2c2.Instance = I2C2;
-  hi2c2.Init.Timing = 0x00100D14;
-  hi2c2.Init.OwnAddress1 = 0;
-  hi2c2.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
-  hi2c2.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
-  hi2c2.Init.OwnAddress2 = 0;
-  hi2c2.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
-  hi2c2.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
-  hi2c2.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
-  if (HAL_I2C_Init(&hi2c2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configure Analogue filter
-  */
-  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c2, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configure Digital filter
-  */
-  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c2, 0) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN I2C2_Init 2 */
-
-  /* USER CODE END I2C2_Init 2 */
-
-}
-
-/**
-  * @brief USART1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_USART1_UART_Init(void)
-{
-
-  /* USER CODE BEGIN USART1_Init 0 */
-
-  /* USER CODE END USART1_Init 0 */
-
-  /* USER CODE BEGIN USART1_Init 1 */
-
-  /* USER CODE END USART1_Init 1 */
-  huart1.Instance = USART1;
-  huart1.Init.BaudRate = 115200;
-  huart1.Init.WordLength = UART_WORDLENGTH_8B;
-  huart1.Init.StopBits = UART_STOPBITS_1;
-  huart1.Init.Parity = UART_PARITY_NONE;
-  huart1.Init.Mode = UART_MODE_TX_RX;
-  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
-  huart1.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
-  huart1.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
-  if (HAL_UART_Init(&huart1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN USART1_Init 2 */
-
-  /* USER CODE END USART1_Init 2 */
-
-}
-
-/**
-  * @brief GPIO Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_GPIO_Init(void)
-{
-  /* USER CODE BEGIN MX_GPIO_Init_1 */
-
-  /* USER CODE END MX_GPIO_Init_1 */
-
-  /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOB_CLK_ENABLE();
-
-  /* USER CODE BEGIN MX_GPIO_Init_2 */
-
-  /* USER CODE END MX_GPIO_Init_2 */
-}
-
 /* USER CODE BEGIN 4 */
+//void HAL_I2C_MemTxCpltCallback(I2C_HandleTypeDef *hi2c);
+//void HAL_I2C_MemRxCpltCallback(I2C_HandleTypeDef *hi2c);
 void HAL_I2C_MasterRxCpltCallback(I2C_HandleTypeDef *hi2c)
 {
   if(hi2c == (I2C_HandleTypeDef *)&hi2c2)
   {
     // Alternate reading of TEMP_OUT_L and TEMP_OUT_H
+
     if(register_selection == TEMP_OUT_L)
     {
       register_selection = TEMP_OUT_H;
@@ -375,7 +272,7 @@ void HAL_I2C_MasterRxCpltCallback(I2C_HandleTypeDef *hi2c)
     }
     else if(register_selection == TEMP_OUT_H)
     {
-      check_for_temp_change = true;  // check for temperature change after reading TEMP_OUT_H
+      check_for_temp_change = true;  // TODO is this in the right place? check for temperature change after reading TEMP_OUT_H
       register_selection = TEMP_OUT_L;
       HAL_I2C_Master_Transmit_IT(&hi2c2, HTS221_WRITE_ADDR, &register_selection, DATA_SIZE);
     }

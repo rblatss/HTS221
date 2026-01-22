@@ -31,7 +31,10 @@ extern "C" {
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <stdio.h>
+#include <string.h>
+#include <stdbool.h>
+#include <limits.h>
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/
@@ -59,6 +62,26 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 
 /* USER CODE BEGIN Private defines */
+
+// HTS221 slave addresses
+#define HTS221_WRITE_ADDR 0xBE
+#define HTS221_READ_ADDR 0xBF
+
+// HTS221 register addresses
+#define WHO_AM_I 0x0F
+#define AV_CONF 0x10
+#define CTRL_REG1 0x20
+#define CTRL_REG2 0x21
+#define CTRL_REG3 0x22
+#define STATUS_REG 0x27
+#define HUMIDITY_OUT_L 0x28
+#define HUMIDITY_OUT_H 0x29
+#define TEMP_OUT_L 0x2A
+#define TEMP_OUT_H 0x2B
+
+// Non-blocking I2C definitions
+#define REG_ADDR_SIZE 1
+#define DATA_SIZE 1
 
 /* USER CODE END Private defines */
 
