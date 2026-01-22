@@ -14,7 +14,6 @@
 #define T0_OUT_MSB 0x3D
 #define T1_OUT_LSB 0x3E
 #define T1_OUT_MSB 0x3F
-#define OUTPUT_TEMP_MASK ((uint16_t ) 0x3FF)
 
 // Function declarations
 uint8_t hts221_read_register_blocking(I2C_HandleTypeDef *hi2c, uint8_t register_address);

@@ -52,8 +52,8 @@ void initialize_temperature_calibration(I2C_HandleTypeDef *hi2c)
   t0_degc_x8 = hts221_read_register_blocking(hi2c, T0_degC_x8);
   t1_degc_x8 = hts221_read_register_blocking(hi2c, T1_degC_x8);
   t1_t0_msb = hts221_read_register_blocking(hi2c, T1_T0_msb);
-  t0_degc = (OUTPUT_TEMP_MASK) & (((uint16_t) (0x3 & t1_t0_msb) << CHAR_BIT) | (uint16_t) t0_degc_x8);
-  t1_degc = (OUTPUT_TEMP_MASK) & (((uint16_t) (0xC & t1_t0_msb) << (CHAR_BIT - 2)) | (uint16_t) t1_degc_x8);
+  t0_degc = (((uint16_t) (0x3 & t1_t0_msb) << CHAR_BIT) | (uint16_t) t0_degc_x8);
+  t1_degc = (((uint16_t) (0xC & t1_t0_msb) << (CHAR_BIT - 2)) | (uint16_t) t1_degc_x8);
 }
 
 float linear_interpolation(uint16_t x, uint16_t x0, uint16_t x1, uint16_t y0, uint16_t y1)

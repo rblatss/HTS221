@@ -145,7 +145,6 @@ int main(void)
   }
 
   // Write to registers
-  // TODO do we need this?
   hts221_write_register_blocking(&hi2c2, CTRL_REG1, 0x81);  // power on HTS221 and set output rate to 1 Hz
   hts221_write_register_blocking(&hi2c2, CTRL_REG2, 0x80);  // refresh content of internal registers
 
@@ -257,14 +256,11 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
-//void HAL_I2C_MemTxCpltCallback(I2C_HandleTypeDef *hi2c);
-//void HAL_I2C_MemRxCpltCallback(I2C_HandleTypeDef *hi2c);
 void HAL_I2C_MasterRxCpltCallback(I2C_HandleTypeDef *hi2c)
 {
   if(hi2c == (I2C_HandleTypeDef *)&hi2c2)
   {
     // Alternate reading of TEMP_OUT_L and TEMP_OUT_H
-
     if(register_selection == TEMP_OUT_L)
     {
       register_selection = TEMP_OUT_H;
@@ -272,7 +268,7 @@ void HAL_I2C_MasterRxCpltCallback(I2C_HandleTypeDef *hi2c)
     }
     else if(register_selection == TEMP_OUT_H)
     {
-      check_for_temp_change = true;  // TODO is this in the right place? check for temperature change after reading TEMP_OUT_H
+      check_for_temp_change = true;
       register_selection = TEMP_OUT_L;
       HAL_I2C_Master_Transmit_IT(&hi2c2, HTS221_WRITE_ADDR, &register_selection, DATA_SIZE);
     }
