@@ -15,7 +15,6 @@ uint8_t hts221_read_register_blocking(I2C_HandleTypeDef *hi2c, uint8_t register_
 {
   HAL_StatusTypeDef result;
   uint8_t data;
-
   result = HAL_I2C_Mem_Read(hi2c, HTS221_READ_ADDR, register_address, REG_ADDR_SIZE, &data, DATA_SIZE, HAL_MAX_DELAY);
   if(result != HAL_OK)
   {
