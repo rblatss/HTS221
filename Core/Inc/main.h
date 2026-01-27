@@ -64,7 +64,8 @@ void Error_Handler(void);
 
 // Non-blocking I2C definitions
 #define REG_ADDR_SIZE 1
-#define DATA_SIZE 1
+#define DATA_SIZE1 1
+#define DATA_SIZE2 2
 
 /* USER CODE END Private defines */
 

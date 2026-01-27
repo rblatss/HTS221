@@ -34,15 +34,20 @@
 #define T1_OUT_LSB 0x3E
 #define T1_OUT_MSB 0x3F
 
+// Special bit for multi-byte reception
+#define HTS221_MULTI_BYTE_FLAG 0x80
+#define TEMP_OUT_READ (TEMP_OUT_L | HTS221_MULTI_BYTE_FLAG)
+
+
 // Function declarations
 uint8_t hts221_read_register_blocking(I2C_HandleTypeDef *hi2c, uint8_t register_address);
 
 void hts221_write_register_blocking(I2C_HandleTypeDef *hi2c, uint8_t register_address, uint8_t data);
 
-void initialize_temperature_calibration(I2C_HandleTypeDef *hi2c);
+void hts221_initialize_temperature_calibration(I2C_HandleTypeDef *hi2c);
 
 float linear_interpolation(uint16_t x, uint16_t x0, uint16_t x1, uint16_t y0, uint16_t y1);
 
-float convert_temperature(uint16_t t_out);
+float hts221_convert_temperature(uint16_t t_out);
 
 #endif
